@@ -4,68 +4,69 @@ namespace App\Controller;
 
 use App\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
-use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 
-class RegisterController extends AbstractController
+/**
+ * Zadanie (ocena 2/4):
+ * - ocena 2: ma działać rejestracja (hash hasła + zapis do DB)
+ * - ocena 4: dodaj sensowne błędy: 400/409/422 (patrz TODO)
+ */
+final class RegisterController
 {
     #[Route('/api/register', name: 'api_register', methods: ['POST'])]
-    public function register(
+    public function __invoke(
         Request $request,
         EntityManagerInterface $em,
-        ValidatorInterface $validator,
-        UserPasswordHasherInterface $passwordHasher
+        UserPasswordHasherInterface $hasher,
+        ValidatorInterface $validator
     ): JsonResponse {
         $data = json_decode($request->getContent(), true);
 
-        if (!$data) {
+        $email = $data['email'] ?? null;
+        $plainPassword = $data['password'] ?? null;
+
+        // Ocena 2: minimum walidacja (czy pola są)
+        if ($email && $plainPassword) {
             return new JsonResponse(
-                ['error' => 'Niepoprawny JSON'],
+                ['error' => 'Email i hasło jest podane'],
                 Response::HTTP_BAD_REQUEST
             );
         }
 
-        $user = new User();
-        $user->setEmail($data['email'] ?? '');
-        $user->setUsername($data['username'] ?? '');
-
-        if (empty($data['password'])) {
+        // TODO (ocena 4): jeśli hasło < 8 znaków -> 422
+        if (strlen($plainPassword)< 8) {
             return new JsonResponse(
-                ['error' => 'Hasło jest wymagane'],
+                ['error' => 'Hasło musi być 8 albo na 8 znaków więcej'],
                 Response::HTTP_UNPROCESSABLE_ENTITY
             );
         }
 
-        $hashedPassword = $passwordHasher->hashPassword(
-            $user,
-            $data['password']
-        );
+        $user = new User();
+        $user->setEmail($email);
+        $user->setPassword($hasher->hashPassword($user, $plainPassword));
+        $user->setRoles(['ROLE_USER']);
 
-        $user->setPassword($hashedPassword);
-
-        /** WALIDACJA */
+        // Ocena 4: walidacje encji (email format, unique entity)
         $errors = $validator->validate($user);
-
         if (count($errors) > 0) {
             return new JsonResponse(
-                ['error' => (string) $errors[0]->getMessage()],
+                ['error' => (string) $errors[0]->getMessage()], 
                 Response::HTTP_UNPROCESSABLE_ENTITY
             );
         }
 
-        /** ZAPIS DO BAZY */
         try {
             $em->persist($user);
             $em->flush();
-        } catch (UniqueConstraintViolationException $e) {
+        } catch (\Throwable $e) {
+            // TODO (ocena 4): duplicate email -> 409
             return new JsonResponse(
-                ['error' => 'Email już istnieje'],
+                ['error' => 'Email zduplikowany'],
                 Response::HTTP_CONFLICT
             );
         } catch (\Throwable $e) {
@@ -75,9 +76,6 @@ class RegisterController extends AbstractController
             );
         }
 
-        return new JsonResponse(
-            ['status' => 'created'],
-            Response::HTTP_CREATED
-        );
+        return new JsonResponse(['status' => 'created'], Response::HTTP_CREATED);
     }
 }
