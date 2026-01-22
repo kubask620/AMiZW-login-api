@@ -18,9 +18,7 @@ final class MeController
         return new JsonResponse([
             'id' => method_exists($user, 'getId') ? $user->getId() : null,
             'email' => method_exists($user, 'getEmail') ? $user->getEmail() : null,
-            'rules' => $user->getRoles(),
-            
-
+            'roles' => $user->getRoles(),
         ]);
     }
 }
